@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
-from astrbot.api import AstrBotConfig
-from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api import AstrBotConfig, logger
+from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star
 
 from .core.jolpica_api import JolpicaApiError, JolpicaClient
+from .core.live_timing import LiveTimingClient
 from .core.push_scheduler import PushScheduler
+from .core.race_control_formatter import extract_messages, format_message, is_filtered
 from .core.session_types import LABEL_TO_KEY, SESSION_LABELS, find_next_race_weekend
 from .core.subscriptions import SubscriptionStore
 
@@ -135,6 +137,55 @@ class F1RaceControlPlugin(Star):
         await self._store.register_group(umo)
         await self._store.set_override(umo, feature, key, value)
         yield event.plain_result(f"本群「{session_label}」{feature_label}已{'开启' if value else '关闭'}。")
+
+    # ---------------- 调试指令(临时) ----------------
+
+    @filter.command("f1测试推送")
+    async def cmd_test_push(self, event: AstrMessageEvent, limit: str = "3"):
+        """临时调试指令：立刻连一次F1官方SignalR流，不等真实比赛/不等调度器判断窗口，
+        抓到什么就格式化什么(同样套用race_control_excluded_flags过滤，跟正式推送行为一致)，
+        走和正式推送同一条context.send_message路径发到本群。
+        用来在部署环境上验证"服务器能不能连上F1livetiming"+"消息格式是否正常"+
+        "AstrBot能不能主动推送"这条完整链路。调试完建议删掉这条指令，不要留到生产。
+        """
+        try:
+            count = max(1, min(int(limit), 10))
+        except ValueError:
+            count = 3
+
+        yield event.plain_result("开始测试：正在连接F1官方livetiming...")
+
+        collected: list[str] = []
+        excluded_flags = self.config.get("race_control_excluded_flags", [])
+
+        async def on_record(stream_name, payload):
+            if stream_name != "RaceControlMessages":
+                return
+            for raw in extract_messages(payload):
+                if is_filtered(raw, excluded_flags):
+                    continue
+                text = format_message(raw)
+                if text:
+                    collected.append(text)
+
+        client = LiveTimingClient(["RaceControlMessages"])
+        task = asyncio.create_task(client.run(on_record))
+        await asyncio.sleep(5)
+        client.stop()
+        try:
+            await asyncio.wait_for(task, timeout=5)
+        except Exception:
+            logger.exception("f1测试推送: live timing连接异常")
+
+        if not collected:
+            yield event.plain_result("没抓到任何race control数据，可能是服务器连不上F1官方livetiming(检查出网/是否需要代理)，或接口暂时无数据。")
+            return
+
+        sample = collected[-count:]
+        umo = event.unified_msg_origin
+        for text in sample:
+            await self.context.send_message(umo, MessageChain().message(f"[测试]{text}"))
+        yield event.plain_result(f"测试完成：共抓到{len(collected)}条，已用send_message推送{len(sample)}条到本群。")
 
     @filter.command("f1状态")
     async def cmd_status(self, event: AstrMessageEvent):

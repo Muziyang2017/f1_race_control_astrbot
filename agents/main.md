@@ -20,8 +20,19 @@
 | `/f1通知 <赛段> <开/关>` | 管理 | `subscriptions.set_override(feature="start_notice")` |
 | `/f1控制 <赛段> <开/关>` | 管理 | `subscriptions.set_override(feature="race_control")` |
 | `/f1状态` | 查询 | `subscriptions.get_effective_config` |
+| `/f1测试推送 [条数]` | **调试(临时)** | 直连`live_timing.LiveTimingClient`，不走`push_scheduler`的窗口判断 |
 
 赛段参数可选值: 练习赛/冲刺排位赛/排位赛/冲刺赛/正赛/全部 (对应`core/session_types.py`的`LABEL_TO_KEY`)。
+
+## 调试指令说明(`/f1测试推送`)
+
+部署到服务器后，不可能干等真实比赛来验证"race control推送能不能用"。这条指令绕开`push_scheduler`的赛程窗口判断，直接：
+
+1. 连一次F1官方SignalR流(即使比赛外，也能拿到上一场的历史快照，内容是真实数据，已验证过)；
+2. 等5秒收集`RaceControlMessages`，用`race_control_formatter.is_filtered()`套一遍`race_control_excluded_flags`过滤(跟正式推送行为一致，默认会把蓝旗消息滤掉，不然调试看到的和实际推送的不一样，调试没意义)，再格式化；
+3. 取最后`limit`条(默认3，最多10)，走和正式推送**完全相同**的`self.context.send_message(umo, MessageChain)`路径发到当前群，消息前加`[测试]`前缀区分。
+
+这样一条指令就能验证"服务器出网能不能连上F1官方域名"+"消息格式对不对"+"AstrBot主动推送链路通不通"三件事，不用等开赛。**调试完建议删掉这条指令**，不要带着留到正式环境——它是纯调试脚手架，不受任何群开关控制，谁发谁都能触发一次真实的外部连接。
 
 ## 注意事项/坑
 

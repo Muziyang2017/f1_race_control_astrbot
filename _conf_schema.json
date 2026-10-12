@@ -37,5 +37,10 @@
       "SPRINT": { "description": "冲刺赛", "type": "bool", "default": true },
       "RACE": { "description": "正赛", "type": "bool", "default": true }
     }
+  },
+  "race_control_excluded_flags": {
+    "description": "race control推送时按Flag值过滤掉的消息，不区分大小写。默认过滤蓝旗(BLUE)——赛车被套圈让道时高频触发，信息价值低",
+    "type": "list",
+    "default": ["BLUE"]
   }
 }

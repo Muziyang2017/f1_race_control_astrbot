@@ -49,6 +49,18 @@ def format_message(raw: dict[str, Any]) -> Optional[str]:
     return f"{prefix} {time_part} {detail}{text}"
 
 
+def is_filtered(raw: dict[str, Any], excluded_flags: list[str]) -> bool:
+    """按Flag值判断该消息是否要被过滤掉，不推送到群。大小写不敏感，
+    容错用户在WebUI配置里填小写(比如"blue")。"""
+    if not excluded_flags:
+        return False
+    flag = raw.get("Flag")
+    if not flag:
+        return False
+    excluded_upper = {str(f).upper() for f in excluded_flags}
+    return str(flag).upper() in excluded_upper
+
+
 def build_event_id(raw: dict[str, Any]) -> str:
     """去重公式照搬F1-RaceControl-Desktop安卓版: utc|flag|sector|text。"""
     utc = raw.get("Utc", "")

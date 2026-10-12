@@ -9,7 +9,7 @@ from astrbot.api.event import MessageChain
 
 from .jolpica_api import JolpicaApiError, JolpicaClient
 from .live_timing import LiveTimingClient
-from .race_control_formatter import build_event_id, extract_messages, format_message
+from .race_control_formatter import build_event_id, extract_messages, format_message, is_filtered
 from .session_types import (
     DURATION_BUFFER_MIN,
     ESTIMATED_DURATION_MIN,
@@ -20,11 +20,24 @@ from .subscriptions import SubscriptionStore
 
 logger = logging.getLogger("astrbot_f1_push_scheduler")
 
-# 结束类SessionStatus，收到即提前断开live timing连接，不等预估时长走完。
-_SESSION_END_STATUSES = {"Finalised", "Finalized", "Ends", "Inactive"}
+# 结束信号来自两个独立的流，任一命中就提前断开live timing连接，不等预估时长走完：
+# - SessionStatus流顶层Status字段：已实测验证真实值 {"Status": "Ends", "Started": "Finished"}
+# - SessionInfo流的SessionStatus字段(与上面是不同流/不同字段，容易搞混)：已实测验证真实值
+#   {"SessionStatus": "Finalised", "ArchiveStatus": {"Status": "Complete"}}
+# 具体样本见 debug/race_control_raw_sample.json，是2026新加坡站正赛结束后抓到的真实历史快照。
+_SESSION_STATUS_END_VALUES = {"Finalised", "Finalized", "Ends", "Inactive"}
+_SESSION_INFO_END_VALUES = {"Finalised", "Finalized"}
 
 # 单个session推送去重集合最多保留的event_id数，避免KV里无限增长。
 _PUSHED_IDS_LIMIT = 500
+
+# session开始前的强制刷新检查点：赛历缓存TTL有6小时，这几个点各强制刷新一次赛历，
+# 降低"该决策的时候用的是过期赛历数据"的风险。每个检查点每个session只会触发一次。
+_REFRESH_CHECKPOINTS = [
+    ("24h", timedelta(hours=24)),
+    ("1h", timedelta(hours=1)),
+    ("10m", timedelta(minutes=10)),
+]
 
 
 class PushScheduler:
@@ -90,10 +103,54 @@ class PushScheduler:
         if not found:
             return
         weekend, session, key = found
-        session_id = f"{weekend.season}-{weekend.round_no}-{key}-{session.start.isoformat()}"
+        session_id = self._build_session_id(weekend, key, session)
+
+        if await self._maybe_force_refresh_schedule(session, session_id, now):
+            try:
+                weekends = await self._jolpica.get_current_season_schedule()
+            except JolpicaApiError as e:
+                logger.warning("强制刷新赛历后重新获取失败: %s", e)
+            else:
+                now = datetime.now(timezone.utc)
+                found = find_active_or_upcoming_session(weekends, now)
+                if not found:
+                    return
+                weekend, session, key = found
+                session_id = self._build_session_id(weekend, key, session)
 
         await self._maybe_send_start_notice(weekend, session, key, session_id, now)
         await self._maybe_manage_live_timing(session, key, session_id, now)
+
+    @staticmethod
+    def _build_session_id(weekend, key: str, session) -> str:
+        return f"{weekend.season}-{weekend.round_no}-{key}-{session.start.isoformat()}"
+
+    async def _maybe_force_refresh_schedule(self, session, session_id: str, now) -> bool:
+        """session开始前的24h/1h/10min检查点各强制刷新一次赛历缓存。
+
+        同一时间可能有多个检查点同时到期(比如插件刚启动、session已经很近了)，
+        这里只实际发一次强制刷新请求，但会把到期的检查点一起标记掉，不会重复打请求。
+        """
+        if now >= session.start:
+            return False
+
+        remaining = session.start - now
+        pending_labels = [
+            label for label, threshold in _REFRESH_CHECKPOINTS
+            if remaining <= threshold and not await self._kv_get(f"refreshed:{session_id}:{label}", False)
+        ]
+        if not pending_labels:
+            return False
+
+        try:
+            await self._jolpica.get_current_season_schedule(force=True)
+        except JolpicaApiError:
+            logger.exception("强制刷新赛历失败(session=%s, checkpoints=%s)", session_id, pending_labels)
+            return False
+
+        for label in pending_labels:
+            await self._kv_put(f"refreshed:{session_id}:{label}", True)
+        return True
 
     async def _maybe_send_start_notice(self, weekend, session, key, session_id, now):
         if now < session.start:
@@ -139,7 +196,7 @@ class PushScheduler:
     def _start_live_timing(self, session_id: str, key: str):
         self._live_session_id = session_id
         self._live_session_key = key
-        self._live_client = LiveTimingClient(["RaceControlMessages", "SessionStatus"])
+        self._live_client = LiveTimingClient(["RaceControlMessages", "SessionStatus", "SessionInfo"])
         live_client = self._live_client
 
         async def _record_handler(stream_name: str, payload: Any):
@@ -147,6 +204,8 @@ class PushScheduler:
                 await self._handle_race_control(session_id, key, payload)
             elif stream_name == "SessionStatus":
                 await self._handle_session_status(payload)
+            elif stream_name == "SessionInfo":
+                await self._handle_session_info(payload)
 
         async def _runner():
             try:
@@ -165,7 +224,11 @@ class PushScheduler:
         self._live_session_key = None
 
     async def _handle_session_status(self, payload: Any):
-        if isinstance(payload, dict) and payload.get("Status") in _SESSION_END_STATUSES:
+        if isinstance(payload, dict) and payload.get("Status") in _SESSION_STATUS_END_VALUES:
+            self._stop_live_timing()
+
+    async def _handle_session_info(self, payload: Any):
+        if isinstance(payload, dict) and payload.get("SessionStatus") in _SESSION_INFO_END_VALUES:
             self._stop_live_timing()
 
     async def _handle_race_control(self, session_id: str, key: str, payload: Any):
@@ -177,6 +240,7 @@ class PushScheduler:
 
         defaults = self._global_defaults()
         group_ids = self._config.get("default_group_ids", [])
+        excluded_flags = self._config.get("race_control_excluded_flags", [])
 
         new_messages = []
         for raw in extract_messages(payload):
@@ -185,6 +249,8 @@ class PushScheduler:
                 continue
             pushed_set.add(event_id)
             pushed_ids.append(event_id)
+            if is_filtered(raw, excluded_flags):
+                continue
             text = format_message(raw)
             if text:
                 new_messages.append(text)
