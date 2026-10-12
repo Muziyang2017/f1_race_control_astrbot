@@ -46,4 +46,5 @@ AstrBot插件，QQ群用。两类功能：
 - AstrBot没有"列出所有群"的官方API，目标群只能靠WebUI配置的`default_group_ids`或群内`/f1订阅本群`登记，机器人没加的群不会出现在候选里。
 - race control连接按需建立/断开，不是常驻连接——比赛中途才订阅的群会错过之前的消息。
 - 正赛若红旗中断导致大幅超时，可能超出预估时长+buffer窗口，调度器会提前断开(即使SessionStatus没发结束信号)，这种情况下可能漏掉比赛后段的race control消息。
+- **"主动消息"权限因QQ协议端而异**：实测遇到过账号没有主动消息权限导致`context.send_message`抛"主动消息失败, 无权限"的异常(QQ官方机器人协议端常见，需要专门申请权限+有调用频率限额；aiocqhttp/OneBot个人号协议端一般没这限制，但也取决于具体实现)。这是平台层面的限制，插件代码管不了，只能提醒用户去确认协议端账号权限。详见[main.md](main.md)。
 - **部分云服务器出口IP连不上`livetiming.formula1.com`**：实测腾讯云某台服务器(国际出网走到法兰克福边缘节点，TLS握手正常)被CloudFront返回403"Request blocked"，换浏览器UA无效，判断是按IP/ASN的WAF规则拦截，不是GFW、也不是UA检测。这个问题代码层面解决不了，只能换出口IP或走代理(代理目前未实现)。排查方法和`/f1模拟推送`调试指令见[main.md](main.md)。

@@ -199,9 +199,20 @@ class F1RaceControlPlugin(Star):
 
         sample = collected[-count:]
         umo = event.unified_msg_origin
+        send_errors = 0
         for text in sample:
-            await self.context.send_message(umo, MessageChain().message(f"[测试]{text}"))
-        yield event.plain_result(f"测试完成：共抓到{len(collected)}条，已用send_message推送{len(sample)}条到本群。")
+            try:
+                await self.context.send_message(umo, MessageChain().message(f"[测试]{text}"))
+            except Exception as e:
+                send_errors += 1
+                logger.exception("f1测试推送: send_message失败")
+        if send_errors:
+            yield event.plain_result(
+                f"测试完成：共抓到{len(collected)}条，send_message失败{send_errors}/{len(sample)}条——"
+                f"通常是当前协议端的账号没有主动消息权限，不是插件逻辑问题，详细异常看日志。"
+            )
+        else:
+            yield event.plain_result(f"测试完成：共抓到{len(collected)}条，已用send_message推送{len(sample)}条到本群。")
 
     @filter.command("f1模拟推送")
     async def cmd_mock_push(self, event: AstrMessageEvent):
@@ -218,14 +229,25 @@ class F1RaceControlPlugin(Star):
 
         umo = event.unified_msg_origin
         sent = 0
+        send_errors = 0
         for raw in kept:
             text = format_message(raw)
             if not text:
                 continue
-            await self.context.send_message(umo, MessageChain().message(f"[模拟]{text}"))
-            sent += 1
+            try:
+                await self.context.send_message(umo, MessageChain().message(f"[模拟]{text}"))
+                sent += 1
+            except Exception:
+                send_errors += 1
+                logger.exception("f1模拟推送: send_message失败")
 
-        yield event.plain_result(f"模拟完成：共{len(samples)}条样例，过滤掉{filtered_out}条，已推送{sent}条到本群。")
+        if send_errors:
+            yield event.plain_result(
+                f"模拟完成：共{len(samples)}条样例，过滤掉{filtered_out}条，send_message失败{send_errors}条——"
+                f"通常是当前协议端的账号没有主动消息权限，不是格式化/过滤逻辑问题，详细异常看日志。"
+            )
+        else:
+            yield event.plain_result(f"模拟完成：共{len(samples)}条样例，过滤掉{filtered_out}条，已推送{sent}条到本群。")
 
     @filter.command("f1状态")
     async def cmd_status(self, event: AstrMessageEvent):

@@ -42,6 +42,8 @@
 
 ## 注意事项/坑
 
+- **两条调试指令里的`send_message`都要单独try/except，不能让一次发送失败炸掉整个指令**：实测踩过这个坑——`cmd_mock_push`最初没包try/except，账号没有"主动消息"权限时`send_message`直接抛异常，AstrBot框架层报"调用插件处理函数时出现异常"，用户完全看不出来是权限问题还是插件bug。现在两条指令都改成循环内try/except，统计失败次数，失败时在回复里直接提示"通常是账号没有主动消息权限"，不是让异常裸着往外抛。
+- **"主动消息"权限因协议端而异，这是平台层面的限制，插件代码管不了**：QQ官方机器人协议端通常需要专门申请主动消息权限，且有调用频率限额；个人号协议端(aiocqhttp接NapCat/Lagrange等OneBot实现)一般没有这个限制，但具体行为取决于协议端实现和账号状态。这个问题一旦在测试指令上暴露，意味着`push_scheduler.py`里真实的开赛通知/race control推送用的是同一个`context.send_message`，会原样复现——不是测试指令专属问题。`push_scheduler.py`那边本来就对每个群的`send_message`单独try/except(见[push_scheduler.md](core/push_scheduler.md))，所以不会炸整个调度循环，但如果账号确实没权限，生产推送会一直静默失败，只能从日志里看到。
 - `/f1通知`和`/f1控制`的handler都委托给私有方法`_toggle`(传入`feature`区分)，避免重复写参数校验逻辑。AstrBot的`@filter.command`要求每个指令对应独立的handler方法，不能直接复用同一个装饰过的方法，所以是两个薄壳方法各自`async for r in self._toggle(...): yield r`转发。
 - **指令权限目前不限管理员**，群里任何人都能执行`/f1通知`/`/f1控制`改本群配置，这是刻意简化(MVP)。如果群管理觉得这样太随意，可以在对应`@filter.command`上加`permission_type=filter.PermissionType.ADMIN`，但目前没加。
 - `main.py`里的`_global_defaults`逻辑在`/f1状态`和`push_scheduler.py`里各写了一份(两处都是`{"start_notice": dict(config.get(...)), "race_control": dict(config.get(...))}`)，属于重复代码但目前没抽公共函数——两边读的是同一个`self.config`，语义一致，重复度低，暂不处理。
