@@ -1,0 +1,6 @@
+name: astrbot_plugin_f1_race_control # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
+display_name: F1 Race Control # 用于展示的名字
+desc: F1赛历/积分查询 + 比赛开始通知 + race control实时消息推送。 # 插件简短描述
+version: v0.1.0 # 插件版本号
+author: Muziyang2017 # 作者
+repo: https://github.com/Muziyang2017/f1_race_control_astrbot # 插件的仓库地址

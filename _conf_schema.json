@@ -1,0 +1,41 @@
+{
+  "user_agent": {
+    "description": "调用 jolpica-f1 (Ergast继任者) API 用的 User-Agent，官方要求自定义UA以免被限流",
+    "type": "string",
+    "default": "AstrBotF1Plugin/1.0 (+astrbot_plugin_f1_race_control)"
+  },
+  "poll_interval_sec": {
+    "description": "后台轮询间隔(秒)：检查赛程/开赛通知/race control推送窗口",
+    "type": "int",
+    "default": 60
+  },
+  "default_group_ids": {
+    "description": "默认接收推送的群 unified_msg_origin 列表（也可在群内发 /f1订阅本群 自行登记）",
+    "type": "list",
+    "default": []
+  },
+  "enable_start_notice": {
+    "description": "开赛通知全局默认开关(按赛段)，群内可用 /f1通知 单独覆盖",
+    "type": "object",
+    "hint": "FP=练习赛 SQ=冲刺排位赛 Q=排位赛 SPRINT=冲刺赛 RACE=正赛",
+    "items": {
+      "FP": { "description": "练习赛", "type": "bool", "default": true },
+      "SQ": { "description": "冲刺排位赛", "type": "bool", "default": true },
+      "Q": { "description": "排位赛", "type": "bool", "default": true },
+      "SPRINT": { "description": "冲刺赛", "type": "bool", "default": true },
+      "RACE": { "description": "正赛", "type": "bool", "default": true }
+    }
+  },
+  "enable_race_control": {
+    "description": "race control 消息推送全局默认开关(按赛段)，群内可用 /f1控制 单独覆盖",
+    "type": "object",
+    "hint": "FP=练习赛 SQ=冲刺排位赛 Q=排位赛 SPRINT=冲刺赛 RACE=正赛",
+    "items": {
+      "FP": { "description": "练习赛", "type": "bool", "default": true },
+      "SQ": { "description": "冲刺排位赛", "type": "bool", "default": true },
+      "Q": { "description": "排位赛", "type": "bool", "default": true },
+      "SPRINT": { "description": "冲刺赛", "type": "bool", "default": true },
+      "RACE": { "description": "正赛", "type": "bool", "default": true }
+    }
+  }
+}
