@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
@@ -16,6 +16,22 @@ from .core.subscriptions import SubscriptionStore
 
 _ON_OFF = {"开": True, "关": False, "on": True, "off": False, "ON": True, "OFF": False}
 _SESSION_CHOICES = "练习赛/冲刺排位赛/排位赛/冲刺赛/正赛/全部"
+
+
+def _build_mock_race_control_samples() -> list[dict]:
+    """给/f1模拟推送用的写死样例，字段形状照抄2026赛季真实抓到的数据(debug/下的调研产物)。
+    刻意包含一条BLUE，用来验证race_control_excluded_flags过滤确实生效。"""
+    now = datetime.now(timezone.utc)
+
+    def ts(offset_sec: int) -> str:
+        return (now + timedelta(seconds=offset_sec)).strftime("%Y-%m-%dT%H:%M:%S")
+
+    return [
+        {"Utc": ts(0), "Lap": 12, "Category": "Flag", "Flag": "YELLOW", "Scope": "Sector", "Sector": 7, "Message": "YELLOW IN TRACK SECTOR 7"},
+        {"Utc": ts(1), "Lap": 12, "Category": "Flag", "Flag": "BLUE", "Scope": "Driver", "RacingNumber": "77", "Message": "WAVED BLUE FLAG FOR CAR 77 (BOT) TIMED AT 20:38:16"},
+        {"Utc": ts(2), "Lap": 15, "Category": "SafetyCar", "Status": "DEPLOYED", "Mode": "VSC", "Message": "VSC DEPLOYED"},
+        {"Utc": ts(3), "Lap": 58, "Category": "Flag", "Flag": "CHEQUERED", "Scope": "Track", "Message": "CHEQUERED FLAG"},
+    ]
 
 
 class F1RaceControlPlugin(Star):
@@ -186,6 +202,30 @@ class F1RaceControlPlugin(Star):
         for text in sample:
             await self.context.send_message(umo, MessageChain().message(f"[测试]{text}"))
         yield event.plain_result(f"测试完成：共抓到{len(collected)}条，已用send_message推送{len(sample)}条到本群。")
+
+    @filter.command("f1模拟推送")
+    async def cmd_mock_push(self, event: AstrMessageEvent):
+        """临时调试指令(第二条)：完全不连网络，用几条写死的真实格式样例消息
+        (黄旗/蓝旗/安全车/方格旗)跑一遍过滤+格式化+send_message，用来在"服务器连不上
+        F1官方livetiming"的环境里单独验证AstrBot推送链路本身没问题。
+        跟/f1测试推送配合定位问题：这条不通 -> 推送链路本身有问题(跟F1网络无关)；
+        这条通但/f1测试推送不通 -> 问题在网络/F1那边(比如被CloudFront WAF拦)，不在插件。
+        """
+        excluded_flags = self.config.get("race_control_excluded_flags", [])
+        samples = _build_mock_race_control_samples()
+        kept = [raw for raw in samples if not is_filtered(raw, excluded_flags)]
+        filtered_out = len(samples) - len(kept)
+
+        umo = event.unified_msg_origin
+        sent = 0
+        for raw in kept:
+            text = format_message(raw)
+            if not text:
+                continue
+            await self.context.send_message(umo, MessageChain().message(f"[模拟]{text}"))
+            sent += 1
+
+        yield event.plain_result(f"模拟完成：共{len(samples)}条样例，过滤掉{filtered_out}条，已推送{sent}条到本群。")
 
     @filter.command("f1状态")
     async def cmd_status(self, event: AstrMessageEvent):
