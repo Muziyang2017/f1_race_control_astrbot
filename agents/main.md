@@ -22,6 +22,7 @@
 | `/f1状态` | 查询 | `subscriptions.get_effective_config` |
 | `/f1测试推送 [条数]` | **调试(临时)** | 直连`live_timing.LiveTimingClient`，不走`push_scheduler`的窗口判断 |
 | `/f1模拟推送` | **调试(临时)** | 不碰网络，用写死的样例数据跑格式化+过滤+`send_message` |
+| `/f1help` | 查询 | 纯静态文本，列出以上所有指令，新增指令时记得同步改这里(没做自动生成) |
 
 赛段参数可选值: 练习赛/冲刺排位赛/排位赛/冲刺赛/正赛/全部 (对应`core/session_types.py`的`LABEL_TO_KEY`)。
 

@@ -241,3 +241,23 @@ class F1RaceControlPlugin(Star):
             parts = [f"{SESSION_LABELS[k]}:{'开' if v else '关'}" for k, v in effective[feature].items()]
             lines.append(f"{label} -> " + " ".join(parts))
         yield event.plain_result("\n".join(lines))
+
+    @filter.command("f1help")
+    async def cmd_help(self, event: AstrMessageEvent):
+        lines = [
+            "📖 F1插件指令",
+            "【查询】",
+            "/赛历 — 最近一场赛事的完整赛程",
+            "/车手积分 — 当前赛季车手积分榜",
+            "/车队积分 — 当前赛季车队积分榜",
+            "/f1状态 — 查看本群当前生效的推送配置",
+            "【订阅管理】",
+            "/f1订阅本群 — 登记本群为推送目标",
+            "/f1退订本群 — 取消本群登记",
+            f"/f1通知 <赛段> <开|关> — 开关本群的开赛通知，赛段: {_SESSION_CHOICES}",
+            f"/f1控制 <赛段> <开|关> — 开关本群的race control推送，赛段同上",
+            "【调试(临时指令，确认好后会被移除)】",
+            "/f1测试推送 [条数] — 连一次F1官方livetiming，抓到的真实数据推送到本群",
+            "/f1模拟推送 — 不连网络，用写死样例数据测格式化/过滤/推送链路",
+        ]
+        yield event.plain_result("\n".join(lines))
