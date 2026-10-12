@@ -1,4 +1,4 @@
-# astrbot_plugin_f1_race_control
+# f1_race_control_astrbot
 
 AstrBot 插件：在 QQ 群查询 F1 赛历/积分，并实时推送开赛通知和比赛中的 race control（赛事控制）消息。
 
